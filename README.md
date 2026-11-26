@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OS Memory Management Simulator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for crisp technical icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        slate: {
+                            850: '#151e32',
+                            900: '#0f172a',
+                            950: '#090d16',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom subtle scrollbars and animations */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155; 
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
+        }
+        .memory-block-transition {
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .pulse-highlight {
+            animation: pulseRing 1s ease-out;
+        }
+        @keyframes pulseRing {
+            0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7); }
+            70% { box-shadow: 0 0 0 8px rgba(56, 189, 248, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200 font-sans min-h-screen flex flex-col selection:bg-sky-500/30 selection:text-sky-200">
+
+    <!-- Toast / Notification Banner (Replaces alert) -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full px-4 sm:px-0"></div>
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+                    <i class="fa-solid fa-microchip text-white text-sm"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base sm:text-lg tracking-tight text-white leading-tight">OS Memory Simulator</h1>
+                    <p class="text-[11px] font-mono text-slate-400 hidden sm:block">Kernel Virtual & Physical Memory Visualizer</p>
+                </div>
+            </div>
+
+            <!-- Module Switcher Tabs -->
+            <nav class="flex bg-slate-950 p-1 rounded-xl border border-slate-800" role="tablist">
+                <button id="tab-contiguous" onclick="switchTab('contiguous')" class="px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-2 bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-sm">
+                    <i class="fa-solid fa-bars-staggered"></i>
+                    <span>Contiguous Allocation</span>
+                </button>
+                <button id="tab-paging" onclick="switchTab('paging')" class="px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 border border-transparent">
+                    <i class="fa-solid fa-table-cells"></i>
+                    <span>Paging & Replacement</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- ===================================================================== -->
+        <!-- MODULE 1: CONTIGUOUS MEMORY ALLOCATION                                -->
+        <!-- ===================================================================== -->
+        <section id="module-contiguous" class="space-y-6">
+            
+            <!-- Top KPI Metrics Bar -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>MEMORY UTILIZATION</span>
+                        <i class="fa-solid fa-chart-pie text-sky-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="metric-utilization" class="text-2xl font-bold font-mono text-white">0.0%</span>
+                        <span id="metric-used-total" class="text-xs font-mono text-slate-400">0 / 1024 KB</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                        <div id="metric-util-bar" class="bg-sky-500 h-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>EXTERNAL FRAGMENTATION</span>
+                        <i class="fa-solid fa-puzzle-piece text-amber-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="metric-ext-frag" class="text-2xl font-bold font-mono text-amber-400">0 KB</span>
+                        <span id="metric-free-holes" class="text-xs font-mono text-slate-400">(1 hole)</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-2">Total free memory split across non-contiguous holes</p>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>INTERNAL FRAGMENTATION</span>
+                        <i class="fa-solid fa-box-open text-purple-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="metric-int-frag" class="text-2xl font-bold font-mono text-purple-400">0 KB</span>
+                        <span id="metric-int-mode" class="text-xs font-mono text-slate-400">Dynamic Mode</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-2">Unused space inside fixed partitions (0 in dynamic)</p>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>LARGEST CONTIGUOUS HOLE</span>
+                        <i class="fa-solid fa-maximize text-emerald-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="metric-largest-hole" class="text-2xl font-bold font-mono text-emerald-400">1024 KB</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-2">Max single process size currently allocatable</p>
+                </div>
+            </div>
+
+            <!-- Main Workspace Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <!-- Left Control Panel (4 cols) -->
+                <div class="lg:col-span-4 space-y-5">
+                    
+                    <!-- Algorithm & Partition Mode Card -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-sliders text-sky-400"></i> Allocation Strategy
+                            </h2>
+                            <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">RAM: 1024 KB</span>
+                        </div>
+
+                        <!-- Partition Scheme Toggle -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1.5">Partitioning Scheme</label>
+                            <div class="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                                <button id="btn-scheme-dynamic" onclick="setPartitionScheme('dynamic')" class="py-1.5 px-2 rounded-md text-xs font-medium bg-slate-800 text-white shadow-sm transition">
+                                    Dynamic (Variable)
+                                </button>
+                                <button id="btn-scheme-fixed" onclick="setPartitionScheme('fixed')" class="py-1.5 px-2 rounded-md text-xs font-medium text-slate-400 hover:text-white transition">
+                                    Fixed Partitions
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Fit Algorithm Selector -->
+                        <div>
+                            <label for="fit-algorithm" class="block text-xs font-medium text-slate-400 mb-1.5">Placement Algorithm</label>
+                            <select id="fit-algorithm" onchange="updateFitDescription()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500">
+                                <option value="first">First Fit (First sufficient hole)</option>
+                                <option value="best">Best Fit (Smallest sufficient hole)</option>
+                                <option value="worst">Worst Fit (Largest available hole)</option>
+                                <option value="next">Next Fit (Continue from last pointer)</option>
+                            </select>
+                        </div>
+
+                        <!-- Dynamic Algorithm Explanation Box -->
+                        <div id="fit-explanation" class="bg-slate-950/80 border border-slate-800/80 rounded-lg p-3 text-xs text-slate-300 leading-relaxed">
+                            <strong class="text-sky-400 block mb-1">First Fit Behavior:</strong>
+                            Scans memory from address <code class="text-amber-300">0x000</code> and allocates the first free block large enough to hold the process. Fast execution, tends to cluster fragments near the start of memory.
+                        </div>
+                    </div>
+
+                    <!-- Process Allocation Form -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+                        <h2 class="text-sm font-semibold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+                            <i class="fa-solid fa-plus-circle text-emerald-400"></i> Allocate Process
+                        </h2>
+
+                        <form id="alloc-form" onsubmit="handleAllocateProcess(event)" class="space-y-3">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">Process ID</label>
+                                    <input type="text" id="proc-name" value="P1" maxlength="6" required class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-sky-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-400 mb-1">Size (KB)</label>
+                                    <input type="number" id="proc-size" value="128" min="8" max="1024" required class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-sky-500">
+                                </div>
+                            </div>
+
+                            <!-- Quick Size Chips -->
+                            <div class="flex flex-wrap gap-1.5 pt-1">
+                                <span class="text-[11px] text-slate-500 self-center mr-1">Quick:</span>
+                                <button type="button" onclick="setQuickSize(32)" class="px-2 py-0.5 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition">32K</button>
+                                <button type="button" onclick="setQuickSize(64)" class="px-2 py-0.5 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition">64K</button>
+                                <button type="button" onclick="setQuickSize(128)" class="px-2 py-0.5 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition">128K</button>
+                                <button type="button" onclick="setQuickSize(256)" class="px-2 py-0.5 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition">256K</button>
+                                <button type="button" onclick="setQuickSize(384)" class="px-2 py-0.5 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition">384K</button>
+                            </div>
+
+                            <button type="submit" class="w-full bg-sky-600 hover:bg-sky-500 text-white font-medium py-2.5 px-4 rounded-lg text-sm transition shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-memory"></i> Allocate into RAM
+                            </button>
+                        </form>
+
+                        <!-- Memory Operations & Presets -->
+                        <div class="pt-3 border-t border-slate-800 space-y-2.5">
+                            <div class="flex gap-2">
+                                <button id="btn-compact" onclick="compactMemory()" class="flex-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 py-2 px-3 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5" title="Relocate all active processes to merge free holes">
+                                    <i class="fa-solid fa-compress"></i> Compact RAM
+                                </button>
+                                <button onclick="resetContiguousMemory()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 px-3 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+                                    <i class="fa-solid fa-rotate-left"></i> Reset
+                                </button>
+                            </div>
+                            <button onclick="loadFragmentationPreset()" class="w-full bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 py-2 px-3 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Load Fragmented Scenario Preset
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Right Visualization Area (8 cols) -->
+                <div class="lg:col-span-8 space-y-5">
+                    
+                    <!-- Visual Physical RAM Map -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                            <div>
+                                <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+                                    <i class="fa-solid fa-server text-sky-400"></i> Physical Address Space (0 KB – 1024 KB)
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Click any allocated block to terminate/deallocate its process.</p>
+                            </div>
+                            <div class="flex items-center gap-3 text-xs">
+                                <span class="flex items-center gap-1.5 text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500 inline-block"></span> Allocated</span>
+                                <span class="flex items-center gap-1.5 text-slate-400"><span class="w-2.5 h-2.5 rounded-sm bg-slate-800 border border-slate-600 border-dashed inline-block"></span> Free Hole</span>
+                                <span id="legend-internal" class="hidden flex items-center gap-1.5 text-purple-300"><span class="w-2.5 h-2.5 rounded-sm bg-purple-500/40 border border-purple-400 inline-block"></span> Internal Frag</span>
+                            </div>
+                        </div>
+
+                        <!-- Proportional Horizontal Memory Strip -->
+                        <div class="relative pt-5 pb-6">
+                            <!-- Address Ruler Markers -->
+                            <div class="flex justify-between text-[10px] font-mono text-slate-500 mb-1 px-0.5">
+                                <span>0 KB</span>
+                                <span>256 KB</span>
+                                <span>512 KB</span>
+                                <span>768 KB</span>
+                                <span>1024 KB</span>
+                            </div>
+
+                            <!-- Main RAM Bar Container -->
+                            <div id="ram-visual-bar" class="w-full h-24 sm:h-28 bg-slate-950 rounded-xl border-2 border-slate-800 flex overflow-hidden p-1 gap-1 shadow-inner relative">
+                                <!-- Blocks rendered via JS -->
+                            </div>
+
+                            <!-- Next Fit Pointer Indicator -->
+                            <div id="next-fit-indicator" class="hidden mt-2 flex items-center gap-2 text-xs font-mono text-cyan-400">
+                                <i class="fa-solid fa-location-crosshairs"></i>
+                                <span id="next-fit-label">Next Fit Rover Pointer: Address 0 KB</span>
+                            </div>
+                        </div>
+
+                        <!-- Detailed Segment Table -->
+                        <div class="mt-2">
+                            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">Memory Segment & Partition Map</h3>
+                            <div class="overflow-x-auto rounded-lg border border-slate-800">
+                                <table class="w-full text-left border-collapse text-xs">
+                                    <thead>
+                                        <tr class="bg-slate-950 text-slate-400 border-b border-slate-800 font-mono">
+                                            <th class="py-2.5 px-3">Address Range</th>
+                                            <th class="py-2.5 px-3">Status / Process</th>
+                                            <th class="py-2.5 px-3">Block Size</th>
+                                            <th class="py-2.5 px-3">Used / Internal Frag</th>
+                                            <th class="py-2.5 px-3 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="memory-segment-table" class="divide-y divide-slate-800/70 font-mono">
+                                        <!-- Rows rendered via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Kernel Event Log -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-terminal text-sky-400"></i> MMU Kernel Log
+                            </span>
+                            <button onclick="clearContiguousLog()" class="text-[11px] text-slate-500 hover:text-slate-300">Clear</button>
+                        </div>
+                        <div id="contiguous-log" class="bg-slate-950 rounded-lg p-3 h-28 overflow-y-auto font-mono text-xs space-y-1 text-slate-300 border border-slate-800/80">
+                            <div class="text-slate-500">[BOOT] Initialized 1024 KB contiguous physical memory pool.</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ===================================================================== -->
+        <!-- MODULE 2: PAGING & PAGE REPLACEMENT SIMULATOR                         -->
+        <!-- ===================================================================== -->
+        <section id="module-paging" class="hidden space-y-6">
+            
+            <!-- Top KPI Metrics Bar -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>PAGE HITS</span>
+                        <i class="fa-solid fa-circle-check text-emerald-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="paging-hits" class="text-2xl font-bold font-mono text-emerald-400">0</span>
+                        <span id="paging-progress-text" class="text-xs font-mono text-slate-400">/ 0 refs</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>PAGE FAULTS</span>
+                        <i class="fa-solid fa-triangle-exclamation text-rose-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="paging-faults" class="text-2xl font-bold font-mono text-rose-400">0</span>
+                        <span class="text-xs font-mono text-slate-400">disk I/O swaps</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>HIT RATIO</span>
+                        <i class="fa-solid fa-bullseye text-sky-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="paging-hit-ratio" class="text-2xl font-bold font-mono text-sky-400">0.0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                        <div id="paging-hit-bar" class="bg-emerald-500 h-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                        <span>FAULT RATIO</span>
+                        <i class="fa-solid fa-chart-line text-amber-400"></i>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span id="paging-fault-ratio" class="text-2xl font-bold font-mono text-amber-400">0.0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                        <div id="paging-fault-bar" class="bg-rose-500 h-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Configuration & Playback Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-end">
+                    
+                    <!-- Algorithm Selection -->
+                    <div class="lg:col-span-3">
+                        <label for="page-algo" class="block text-xs font-medium text-slate-400 mb-1.5">Replacement Algorithm</label>
+                        <select id="page-algo" onchange="resetPagingSimulation()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500">
+                            <option value="FIFO">FIFO (First-In, First-Out)</option>
+                            <option value="LRU">LRU (Least Recently Used)</option>
+                            <option value="OPTIMAL">Optimal (Belady's Lookahead)</option>
+                        </select>
+                    </div>
+
+                    <!-- Number of Page Frames -->
+                    <div class="lg:col-span-2">
+                        <label for="frame-count" class="block text-xs font-medium text-slate-400 mb-1.5">Physical Frames (3–7)</label>
+                        <select id="frame-count" onchange="resetPagingSimulation()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-sky-500">
+                            <option value="3" selected>3 Frames</option>
+                            <option value="4">4 Frames</option>
+                            <option value="5">5 Frames</option>
+                            <option value="6">6 Frames</option>
+                        </select>
+                    </div>
+
+                    <!-- Reference String Input -->
+                    <div class="lg:col-span-5">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="ref-string-input" class="text-xs font-medium text-slate-400">Page Reference String (space or comma separated)</label>
+                            <div class="flex gap-1.5">
+                                <button type="button" onclick="applyRefPreset('standard')" class="text-[11px] text-sky-400 hover:underline">Classic</button>
+                                <span class="text-slate-600">•</span>
+                                <button type="button" onclick="applyRefPreset('belady')" class="text-[11px] text-amber-400 hover:underline" title="Demonstrates Belady's Anomaly in FIFO when switching 3 vs 4 frames">Belady's Anomaly</button>
+                                <span class="text-slate-600">•</span>
+                                <button type="button" onclick="applyRefPreset('locality')" class="text-[11px] text-emerald-400 hover:underline">Locality</button>
+                                <span class="text-slate-600">•</span>
+                                <button type="button" onclick="applyRefPreset('random')" class="text-[11px] text-purple-400 hover:underline">Random</button>
+                            </div>
+                        </div>
+                        <input type="text" id="ref-string-input" value="7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1" onchange="resetPagingSimulation()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-sky-500" placeholder="e.g. 7 0 1 2 0 3 0 4">
+                    </div>
+
+                    <!-- Execution Controls -->
+                    <div class="lg:col-span-2 flex gap-2">
+                        <button onclick="stepPagingForward()" id="btn-page-step" class="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-medium py-2 px-3 rounded-lg text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-lg shadow-sky-600/20">
+                            <i class="fa-solid fa-forward-step"></i> Step
+                        </button>
+                        <button onclick="toggleAutoPlayPaging()" id="btn-page-play" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-3 rounded-lg text-xs sm:text-sm transition flex items-center justify-center" title="Auto-Run / Pause">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                        <button onclick="runAllPaging()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2 px-3 rounded-lg text-xs sm:text-sm transition flex items-center justify-center" title="Run Complete Sequence">
+                            <i class="fa-solid fa-forward-fast"></i>
+                        </button>
+                        <button onclick="resetPagingSimulation()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-lg text-xs sm:text-sm transition flex items-center justify-center" title="Reset Simulation">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Algorithm Explanation Banner -->
+                <div id="paging-algo-explanation" class="mt-4 bg-slate-950/90 border border-slate-800 rounded-lg p-3 text-xs text-slate-300 flex items-start gap-2.5">
+                    <i class="fa-solid fa-circle-info text-sky-400 mt-0.5"></i>
+                    <div>
+                        <strong class="text-sky-400">FIFO (First-In, First-Out):</strong> Replaces the oldest page currently loaded in physical frames, regardless of how frequently or recently it was accessed. Simple queue structure, but susceptible to <em>Belady's Anomaly</em>.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Reference Stream & Frame State Visualizer -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <!-- Live Frame Inspector (4 cols) -->
+                <div class="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-4">
+                    <div>
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+                            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-layer-group text-sky-400"></i> Active Page Table / Frames
+                            </h2>
+                            <span id="current-step-badge" class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">Step 0</span>
+                        </div>
+
+                        <!-- Live Frame Slots -->
+                        <div id="live-frames-container" class="space-y-2.5">
+                            <!-- Frame cards injected by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Step Decision Insight Box -->
+                    <div id="paging-step-insight" class="bg-slate-950 border border-slate-800 rounded-lg p-3.5 text-xs space-y-1.5">
+                        <div class="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">MMU Translation Decision</div>
+                        <p class="text-slate-300 leading-relaxed">Click <strong>Step</strong> or <strong>Play</strong> to begin processing the virtual page reference stream.</p>
+                    </div>
+                </div>
+
+                <!-- Reference Trace Matrix Timeline (8 cols) -->
+                <div class="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col">
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3 mb-4">
+                        <div>
+                            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-table-columns text-indigo-400"></i> Page Replacement Trace Matrix
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Horizontal execution history showing frame residency, hits, and page faults.</p>
+                        </div>
+                        <div class="flex items-center gap-3 text-xs">
+                            <span class="flex items-center gap-1.5 text-emerald-400"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500/20 border border-emerald-500 inline-block"></span> Hit (H)</span>
+                            <span class="flex items-center gap-1.5 text-rose-400"><span class="w-2.5 h-2.5 rounded-full bg-rose-500/20 border border-rose-500 inline-block"></span> Fault (F)</span>
+                        </div>
+                    </div>
+
+                    <!-- Scrollable Matrix Table -->
+                    <div id="paging-matrix-wrapper" class="overflow-x-auto pb-2 flex-1">
+                        <table id="paging-matrix-table" class="border-collapse text-center font-mono text-xs min-w-full">
+                            <!-- Matrix dynamically generated -->
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-900 py-4 px-4 text-center text-xs text-slate-500">
+        Interactive OS Memory Management Simulator • Contiguous Allocation (First/Best/Worst/Next Fit) & Virtual Paging (FIFO/LRU/Optimal)
+    </footer>
+
+    <!-- ========================================================================= -->
+    <!-- JAVASCRIPT SIMULATION ENGINE                                              -->
+    <!-- ========================================================================= -->
+    <script>
+        /* ==========================================================================
+           UTILITIES & NAVIGATION
+           ========================================================================== */
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            const styles = {
+                info: 'bg-slate-800 border-sky-500/50 text-sky-200',
+                success: 'bg-slate-800 border-emerald-500/50 text-emerald-200',
+                warning: 'bg-slate-800 border-amber-500/50 text-amber-200',
+                error: 'bg-slate-900 border-rose-500 text-rose-200'
+            };
+
+            const icons = {
+                info: 'fa-circle-info text-sky-400',
+                success: 'fa-circle-check text-emerald-400',
+                warning: 'fa-triangle-exclamation text-amber-400',
+                error: 'fa-circle-xmark text-rose-400'
+            };
+
+            toast.className = `pointer-events-auto border-l-4 rounded-lg p-3 shadow-xl backdrop-blur-md flex items-center gap-3 text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 ${styles[type] || styles.info}`;
+            toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info} text-sm"></i><span>${message}</span>`;
+            
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        function switchTab(tab) {
+            const tabContig = document.getElementById('tab-contiguous');
+            const tabPaging = document.getElementById('tab-paging');
+            const modContig = document.getElementById('module-contiguous');
+            const modPaging = document.getElementById('module-paging');
+
+            if (tab === 'contiguous') {
+                modContig.classList.remove('hidden');
+                modPaging.classList.add('hidden');
+                
+                tabContig.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-2 bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-sm';
+                tabPaging.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 border border-transparent';
+            } else {
+                modContig.classList.add('hidden');
+                modPaging.classList.remove('hidden');
+
+                tabPaging.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-2 bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-sm';
+                tabContig.className = 'px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 border border-transparent';
+            }
+        }
+
+        /* ==========================================================================
+           MODULE 1: CONTIGUOUS MEMORY ALLOCATION ENGINE
+           ========================================================================== */
+        const TOTAL_RAM = 1024;
+        const PROCESS_COLORS = [
+            { bg: 'bg-sky-500', border: 'border-sky-400', text: 'text-white', badge: 'bg-sky-500/20 text-sky-300 border-sky-500/40' },
+            { bg: 'bg-indigo-500', border: 'border-indigo-400', text: 'text-white', badge: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' },
+            { bg: 'bg-emerald-500', border: 'border-emerald-400', text: 'text-white', badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
+            { bg: 'bg-amber-500', border: 'border-amber-400', text: 'text-slate-950', badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
+            { bg: 'bg-rose-500', border: 'border-rose-400', text: 'text-white', badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40' },
+            { bg: 'bg-purple-500', border: 'border-purple-400', text: 'text-white', badge: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
+            { bg: 'bg-cyan-500', border: 'border-cyan-400', text: 'text-slate-950', badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' },
+            { bg: 'bg-teal-500', border: 'border-teal-400', text: 'text-white', badge: 'bg-teal-500/20 text-teal-300 border-teal-500/40' }
+        ];
+
+        // Fixed partition layout (sums to 1024 KB)
+        const FIXED_PARTITIONS_TEMPLATE = [
+            { start: 0, size: 64 },
+            { start: 64, size: 128 },
+            { start: 192, size: 128 },
+            { start: 320, size: 192 },
+            { start: 512, size: 256 },
+            { start: 768, size: 256 }
+        ];
+
+        let contigState = {
+            scheme: 'dynamic', // 'dynamic' | 'fixed'
+            blocks: [],
+            nextFitAddress: 0,
+            processCounter: 1,
+            colorIndex: 0
+        };
+
+        const fitDescriptions = {
+            first: `<strong class="text-sky-400 block mb-1">First Fit Behavior:</strong> Scans memory from address <code class="text-amber-300">0 KB</code> and allocates the first free hole large enough to hold the process. Fast execution, tends to leave small fragments near low addresses.`,
+            best: `<strong class="text-emerald-400 block mb-1">Best Fit Behavior:</strong> Searches the entire free list and chooses the <em>smallest</em> hole that is big enough. Minimizes wasted space per block, but often leaves tiny unusable external fragments.`,
+            worst: `<strong class="text-purple-400 block mb-1">Worst Fit Behavior:</strong> Searches all free holes and picks the <em>largest</em> available block. Leaves behind a sizeable leftover hole that may still be useful for future processes.`,
+            next: `<strong class="text-cyan-400 block mb-1">Next Fit Behavior:</strong> Works like First Fit, but begins scanning from the last allocated address pointer (wrapping around at 1024 KB) to distribute allocations evenly across RAM.`
+        };
+
+        function updateFitDescription() {
+            const algo = document.getElementById('fit-algorithm').value;
+            document.getElementById('fit-explanation').innerHTML = fitDescriptions[algo];
+            const indicator = document.getElementById('next-fit-indicator');
+            if (algo === 'next') {
+                indicator.classList.remove('hidden');
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        function logContiguous(msg, type = 'info') {
+            const logBox = document.getElementById('contiguous-log');
+            const colors = {
+                info: 'text-slate-300',
+                alloc: 'text-emerald-400',
+                free: 'text-amber-400',
+                error: 'text-rose-400',
+                compact: 'text-sky-400'
+            };
+            const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const entry = document.createElement('div');
+            entry.className = colors[type] || 'text-slate-300';
+            entry.innerHTML = `<span class="text-slate-600">[${time}]</span> ${msg}`;
+            logBox.appendChild(entry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function clearContiguousLog() {
+            document.getElementById('contiguous-log').innerHTML = '';
+        }
+
+        function setQuickSize(size) {
+            document.getElementById('proc-size').value = size;
+        }
+
+        function setPartitionScheme(scheme) {
+            contigState.scheme = scheme;
+            const btnDyn = document.getElementById('btn-scheme-dynamic');
+            const btnFix = document.getElementById('btn-scheme-fixed');
+            const legendInt = document.getElementById('legend-internal');
+            const btnCompact = document.getElementById('btn-compact');
+
+            if (scheme === 'dynamic') {
+                btnDyn.className = 'py-1.5 px-2 rounded-md text-xs font-medium bg-slate-800 text-white shadow-sm transition';
+                btnFix.className = 'py-1.5 px-2 rounded-md text-xs font-medium text-slate-400 hover:text-white transition';
+                legendInt.classList.add('hidden');
+                btnCompact.disabled = false;
+                btnCompact.classList.remove('opacity-40', 'cursor-not-allowed');
+            } else {
+                btnFix.className = 'py-1.5 px-2 rounded-md text-xs font-medium bg-slate-800 text-white shadow-sm transition';
+                btnDyn.className = 'py-1.5 px-2 rounded-md text-xs font-medium text-slate-400 hover:text-white transition';
+                legendInt.classList.remove('hidden');
+                btnCompact.disabled = true;
+                btnCompact.classList.add('opacity-40', 'cursor-not-allowed');
+            }
+
+            resetContiguousMemory();
+            logContiguous(`Switched partitioning mode to ${scheme.toUpperCase()}.`, 'info');
+        }
+
+        function resetContiguousMemory() {
+            contigState.nextFitAddress = 0;
+            contigState.processCounter = 1;
+            contigState.colorIndex = 0;
+            document.getElementById('proc-name').value = 'P1';
+
+            if (contigState.scheme === 'dynamic') {
+                contigState.blocks = [
+                    { id: 'hole-0', start: 0, size: TOTAL_RAM, free: true, process: null, requestedSize: 0, color: null }
+                ];
+            } else {
+                contigState.blocks = FIXED_PARTITIONS_TEMPLATE.map((p, idx) => ({
+                    id: `part-${idx}`,
+                    start: p.start,
+                    size: p.size,
+                    free: true,
+                    process: null,
+                    requestedSize: 0,
+                    color: null
+                }));
+            }
+            renderContiguousMemory();
+        }
+
+        function mergeAdjacentHoles() {
+            if (contigState.scheme !== 'dynamic') return;
+            const merged = [];
+            for (let block of contigState.blocks) {
+                if (merged.length > 0 && merged[merged.length - 1].free && block.free) {
+                    merged[merged.length - 1].size += block.size;
+                } else {
+                    merged.push({ ...block });
+                }
+            }
+            contigState.blocks = merged;
+        }
+
+        function handleAllocateProcess(e) {
+            e.preventDefault();
+            const nameInput = document.getElementById('proc-name');
+            const sizeInput = document.getElementById('proc-size');
+            const algo = document.getElementById('fit-algorithm').value;
+
+            const procName = nameInput.value.trim().toUpperCase() || `P${contigState.processCounter}`;
+            const reqSize = parseInt(sizeInput.value, 10);
+
+            if (isNaN(reqSize) || reqSize <= 0 || reqSize > TOTAL_RAM) {
+                showToast('Please enter a valid process size between 1 and 1024 KB.', 'error');
+                return;
+            }
+
+            // Check duplicate process name
+            if (contigState.blocks.some(b => !b.free && b.process === procName)) {
+                showToast(`Process ${procName} is already resident in memory.`, 'warning');
+                return;
+            }
+
+            // Find candidate free blocks
+            let selectedIndex = -1;
+            const blocks = contigState.blocks;
+
+            if (algo === 'first') {
+                selectedIndex = blocks.findIndex(b => b.free && b.size >= reqSize);
+            } else if (algo === 'best') {
+                let minDiff = Infinity;
+                blocks.forEach((b, idx) => {
+                    if (b.free && b.size >= reqSize && (b.size - reqSize) < minDiff) {
+                        minDiff = b.size - reqSize;
+                        selectedIndex = idx;
+                    }
+                });
+            } else if (algo === 'worst') {
+                let maxSize = -1;
+                blocks.forEach((b, idx) => {
+                    if (b.free && b.size >= reqSize && b.size > maxSize) {
+                        maxSize = b.size;
+                        selectedIndex = idx;
+                    }
+                });
+            } else if (algo === 'next') {
+                // Start searching from block containing or after nextFitAddress
+                let startIdx = blocks.findIndex(b => b.start >= contigState.nextFitAddress);
+                if (startIdx === -1) startIdx = 0;
+
+                for (let offset = 0; offset < blocks.length; offset++) {
+                    const idx = (startIdx + offset) % blocks.length;
+                    if (blocks[idx].free && blocks[idx].size >= reqSize) {
+                        selectedIndex = idx;
+                        break;
+                    }
+                }
+            }
+
+            if (selectedIndex === -1) {
+                const totalFree = blocks.filter(b => b.free).reduce((sum, b) => sum + b.size, 0);
+                if (contigState.scheme === 'dynamic' && totalFree >= reqSize) {
+                    showToast(`Allocation failed due to External Fragmentation! Total free: ${totalFree} KB, but largest contiguous hole is smaller than ${reqSize} KB. Try Compacting RAM.`, 'error');
+                    logContiguous(`FAILED to allocate ${procName} (${reqSize} KB) — External fragmentation prevents contiguous placement.`, 'error');
+                } else {
+                    showToast(`Insufficient contiguous partition/hole for ${procName} (${reqSize} KB).`, 'error');
+                    logContiguous(`FAILED to allocate ${procName} (${reqSize} KB) — No fitting block available.`, 'error');
+                }
+                return;
+            }
+
+            const targetBlock = blocks[selectedIndex];
+            const color = PROCESS_COLORS[contigState.colorIndex % PROCESS_COLORS.length];
+            contigState.colorIndex++;
+
+            if (contigState.scheme === 'dynamic') {
+                const remainingSize = targetBlock.size - reqSize;
+                const allocatedBlock = {
+                    id: `proc-${Date.now()}-${Math.random()}`,
+                    start: targetBlock.start,
+                    size: reqSize,
+                    requestedSize: reqSize,
+                    free: false,
+                    process: procName,
+                    color: color
+                };
+
+                if (remainingSize > 0) {
+                    const leftoverHole = {
+                        id: `hole-${Date.now()}-${Math.random()}`,
+                        start: targetBlock.start + reqSize,
+                        size: remainingSize,
+                        requestedSize: 0,
+                        free: true,
+                        process: null,
+                        color: null
+                    };
+                    blocks.splice(selectedIndex, 1, allocatedBlock, leftoverHole);
+                } else {
+                    blocks.splice(selectedIndex, 1, allocatedBlock);
+                }
+                contigState.nextFitAddress = (allocatedBlock.start + allocatedBlock.size) % TOTAL_RAM;
+            } else {
+                // Fixed partition allocation
+                targetBlock.free = false;
+                targetBlock.process = procName;
+                targetBlock.requestedSize = reqSize;
+                targetBlock.color = color;
+                contigState.nextFitAddress = (targetBlock.start + targetBlock.size) % TOTAL_RAM;
+            }
+
+            contigState.processCounter++;
+            nameInput.value = `P${contigState.processCounter}`;
+            
+            logContiguous(`Allocated <strong>${procName}</strong> (${reqSize} KB) at address <code>${targetBlock.start} KB</code> using ${algo.toUpperCase()} FIT.`, 'alloc');
+            renderContiguousMemory();
+        }
+
+        function deallocateBlock(index) {
+            const block = contigState.blocks[index];
+            if (!block || block.free) return;
+
+            const freedProc = block.process;
+            const freedStart = block.start;
+            const freedSize = block.size;
+
+            block.free = true;
+            block.process = null;
+            block.requestedSize = 0;
+            block.color = null;
+
+            mergeAdjacentHoles();
+            logContiguous(`Deallocated <strong>${freedProc}</strong> (${freedSize} KB) at address <code>${freedStart} KB</code>.`, 'free');
+            showToast(`Terminated ${freedProc} and released ${freedSize} KB.`, 'info');
+            renderContiguousMemory();
+        }
+
+        function compactMemory() {
+            if (contigState.scheme !== 'dynamic') return;
+            const activeBlocks = contigState.blocks.filter(b => !b.free);
+            if (activeBlocks.length === 0) {
+                showToast('Memory is already completely free.', 'info');
+                return;
+            }
+
+            let currentAddr = 0;
+            const compacted = [];
+
+            for (let b of activeBlocks) {
+                compacted.push({
+                    ...b,
+                    start: currentAddr
+                });
+                currentAddr += b.size;
+            }
+
+            const totalFree = TOTAL_RAM - currentAddr;
+            if (totalFree > 0) {
+                compacted.push({
+                    id: `hole-compacted-${Date.now()}`,
+                    start: currentAddr,
+                    size: totalFree,
+                    requestedSize: 0,
+                    free: true,
+                    process: null,
+                    color: null
+                });
+            }
+
+            contigState.blocks = compacted;
+            contigState.nextFitAddress = currentAddr % TOTAL_RAM;
+            logContiguous(`COMPACTION complete: Relocated ${activeBlocks.length} processes; merged free space into single ${totalFree} KB hole.`, 'compact');
+            showToast(`Memory compacted! Consolidated ${totalFree} KB into 1 contiguous hole.`, 'success');
+            renderContiguousMemory();
+        }
+
+        function loadFragmentationPreset() {
+            setPartitionScheme('dynamic');
+            contigState.blocks = [
+                { id: 'p1', start: 0, size: 128, requestedSize: 128, free: false, process: 'OS_SYS', color: PROCESS_COLORS[0] },
+                { id: 'h1', start: 128, size: 96, requestedSize: 0, free: true, process: null, color: null },
+                { id: 'p2', start: 224, size: 192, requestedSize: 192, free: false, process: 'DB_SRV', color: PROCESS_COLORS[1] },
+                { id: 'h2', start: 416, size: 64, requestedSize: 0, free: true, process: null, color: null },
+                { id: 'p3', start: 480, size: 160, requestedSize: 160, free: false, process: 'WORKER', color: PROCESS_COLORS[2] },
+                { id: 'h3', start: 640, size: 128, requestedSize: 0, free: true, process: null, color: null },
+                { id: 'p4', start: 768, size: 128, requestedSize: 128, free: false, process: 'CACHE', color: PROCESS_COLORS[4] },
+                { id: 'h4', start: 896, size: 128, requestedSize: 0, free: true, process: null, color: null }
+            ];
+            contigState.processCounter = 5;
+            contigState.colorIndex = 5;
+            contigState.nextFitAddress = 0;
+            document.getElementById('proc-name').value = 'P5';
+            document.getElementById('proc-size').value = '256';
+            logContiguous('Loaded fragmented preset: 416 KB total free across 4 non-contiguous holes (max hole: 128 KB).', 'info');
+            showToast('Loaded fragmented scenario! Try allocating a 256 KB process now.', 'warning');
+            renderContiguousMemory();
+        }
+
+        function renderContiguousMemory() {
+            const visualBar = document.getElementById('ram-visual-bar');
+            const tableBody = document.getElementById('memory-segment-table');
+            visualBar.innerHTML = '';
+            tableBody.innerHTML = '';
+
+            let usedBytes = 0;
+            let internalFragBytes = 0;
+            let freeHoles = [];
+
+            contigState.blocks.forEach((block, index) => {
+                const widthPercent = (block.size / TOTAL_RAM) * 100;
+
+                if (block.free) {
+                    freeHoles.push(block.size);
+                } else {
+                    usedBytes += block.requestedSize;
+                    internalFragBytes += (block.size - block.requestedSize);
+                }
+
+                // 1. Render Visual Bar Block
+                const blockEl = document.createElement('div');
+                blockEl.style.width = `${widthPercent}%`;
+                
+                if (block.free) {
+                    blockEl.className = 'memory-block-transition h-full rounded-lg bg-slate-900/90 border border-dashed border-slate-700 flex flex-col items-center justify-center overflow-hidden px-1 select-none group relative';
+                    blockEl.title = `Free Hole: ${block.start} KB – ${block.start + block.size} KB (${block.size} KB)`;
+                    if (widthPercent >= 6) {
+                        blockEl.innerHTML = `
+                            <span class="text-[10px] font-mono text-slate-500 font-semibold truncate">FREE</span>
+                            <span class="text-[10px] font-mono text-slate-600 truncate">${block.size}K</span>
+                        `;
+                    }
+                } else {
+                    const internalWasted = block.size - block.requestedSize;
+                    const usedRatio = (block.requestedSize / block.size) * 100;
+                    
+                    blockEl.onclick = () => deallocateBlock(index);
+                    blockEl.className = `memory-block-transition h-full rounded-lg ${block.color.bg} ${block.color.text} border ${block.color.border} flex flex-col items-center justify-center overflow-hidden px-1 cursor-pointer hover:brightness-110 relative shadow-md group`;
+                    blockEl.title = `${block.process}: ${block.requestedSize} KB allocated in ${block.size} KB block (Click to Free)`;
+
+                    // Show internal fragmentation hatch if fixed partition has leftover space
+                    let internalOverlay = '';
+                    if (internalWasted > 0) {
+                        internalOverlay = `<div style="width: ${100 - usedRatio}%" class="absolute right-0 top-0 bottom-0 bg-slate-950/60 border-l border-dashed border-purple-300 flex items-center justify-center" title="Internal Fragmentation: ${internalWasted} KB"></div>`;
+                    }
+
+                    blockEl.innerHTML = `
+                        ${internalOverlay}
+                        <span class="text-xs font-mono font-bold truncate z-10">${block.process}</span>
+                        ${widthPercent >= 5 ? `<span class="text-[10px] font-mono opacity-90 truncate z-10">${block.requestedSize}K</span>` : ''}
+                        <div class="absolute inset-0 bg-rose-600/90 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[11px] font-bold z-20">
+                            <i class="fa-solid fa-trash-can mr-1"></i> Free
+                        </div>
+                    `;
+                }
+                visualBar.appendChild(blockEl);
+
+                // 2. Render Table Row
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/40 transition-colors';
+                const endAddr = block.start + block.size;
+                const internalWasted = block.free ? 0 : (block.size - block.requestedSize);
+
+                tr.innerHTML = `
+                    <td class="py-2 px-3 text-slate-400">${String(block.start).padStart(4, '0')} – ${String(endAddr).padStart(4, '0')} KB</td>
+                    <td class="py-2 px-3">
+                        ${block.free 
+                            ? '<span class="px-2 py-0.5 rounded text-[11px] bg-slate-800 text-slate-400 border border-slate-700">FREE HOLE</span>' 
+                            : `<span class="px-2 py-0.5 rounded text-[11px] font-bold border ${block.color.badge}">${block.process}</span>`
+                        }
+                    </td>
+                    <td class="py-2 px-3 text-slate-200">${block.size} KB</td>
+                    <td class="py-2 px-3">
+                        ${block.free 
+                            ? '<span class="text-slate-600">—</span>' 
+                            : `<span class="text-slate-200">${block.requestedSize} KB</span> ${internalWasted > 0 ? `<span class="text-purple-400 text-[11px]">(+${internalWasted} KB int. frag)</span>` : ''}`
+                        }
+                    </td>
+                    <td class="py-2 px-3 text-right">
+                        ${block.free 
+                            ? '<span class="text-[11px] text-slate-600">Available</span>' 
+                            : `<button onclick="deallocateBlock(${index})" class="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2 py-1 rounded text-[11px] transition"><i class="fa-solid fa-xmark mr-1"></i>Free</button>`
+                        }
+                    </td>
+                `;
+                tableBody.appendChild(tr);
+            });
+
+            // Update KPI Metrics
+            const totalFree = freeHoles.reduce((a, b) => a + b, 0);
+            const largestHole = freeHoles.length > 0 ? Math.max(...freeHoles) : 0;
+            const utilization = ((usedBytes / TOTAL_RAM) * 100).toFixed(1);
+            // External fragmentation: free memory that cannot be used as a single contiguous block (when >1 hole exists)
+            const externalFrag = freeHoles.length > 1 ? totalFree : 0;
+
+            document.getElementById('metric-utilization').textContent = `${utilization}%`;
+            document.getElementById('metric-used-total').textContent = `${usedBytes} / ${TOTAL_RAM} KB`;
+            document.getElementById('metric-util-bar').style.width = `${utilization}%`;
+
+            document.getElementById('metric-ext-frag').textContent = `${externalFrag} KB`;
+            document.getElementById('metric-free-holes').textContent = `(${freeHoles.length} ${freeHoles.length === 1 ? 'hole' : 'holes'})`;
+
+            document.getElementById('metric-int-frag').textContent = `${internalFragBytes} KB`;
+            document.getElementById('metric-int-mode').textContent = contigState.scheme === 'dynamic' ? 'Dynamic Mode' : 'Fixed Mode';
+
+            document.getElementById('metric-largest-hole').textContent = `${largestHole} KB`;
+            document.getElementById('next-fit-label').textContent = `Next Fit Rover Pointer: Address ${contigState.nextFitAddress} KB`;
+        }
+
+
+        /* ==========================================================================
+           MODULE 2: PAGING & PAGE REPLACEMENT SIMULATOR ENGINE
+           ========================================================================== */
+        let pagingState = {
+            refString: [],
+            frameCount: 3,
+            algo: 'FIFO',
+            currentStep: 0,
+            history: [], // Array of step snapshots
+            autoPlayTimer: null
+        };
+
+        const pagingAlgoInfo = {
+            FIFO: `<strong class="text-sky-400">FIFO (First-In, First-Out):</strong> Evicts the page that has been in memory the longest. Easy to implement with a circular queue, but ignores page usage frequency and suffers from <em>Belady's Anomaly</em>.`,
+            LRU: `<strong class="text-emerald-400">LRU (Least Recently Used):</strong> Evicts the page that has not been referenced for the longest period of time. Exploits temporal locality and approximates Optimal replacement without future knowledge.`,
+            OPTIMAL: `<strong class="text-purple-400">Optimal (OPT / Belady's Algorithm):</strong> Looks ahead in the reference string and evicts the page that will not be used for the longest time in the future. Guarantees the lowest possible page fault rate (theoretical benchmark).`
+        };
+
+        function parseReferenceString(raw) {
+            return raw
+                .split(/[\s,]+/)
+                .map(s => s.trim())
+                .filter(s => s !== '' && !isNaN(Number(s)))
+                .map(Number);
+        }
+
+        function applyRefPreset(type) {
+            const input = document.getElementById('ref-string-input');
+            const frameSelect = document.getElementById('frame-count');
+            if (type === 'standard') {
+                input.value = '7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1';
+                frameSelect.value = '3';
+            } else if (type === 'belady') {
+                input.value = '1 2 3 4 1 2 5 1 2 3 4 5';
+                frameSelect.value = '3';
+                document.getElementById('page-algo').value = 'FIFO';
+                showToast("Belady's Preset: Run with 3 frames (9 faults), then switch to 4 frames (10 faults) in FIFO!", 'info');
+            } else if (type === 'locality') {
+                input.value = '2 3 2 1 5 2 4 5 3 2 5 2 3 2 1 2';
+                frameSelect.value = '3';
+            } else if (type === 'random') {
+                const len = 18;
+                const arr = Array.from({ length: len }, () => Math.floor(Math.random() * 8));
+                input.value = arr.join(' ');
+            }
+            resetPagingSimulation();
+        }
+
+        function stopAutoPlayPaging() {
+            if (pagingState.autoPlayTimer) {
+                clearInterval(pagingState.autoPlayTimer);
+                pagingState.autoPlayTimer = null;
+            }
+            const playBtn = document.getElementById('btn-page-play');
+            playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+            playBtn.classList.remove('bg-amber-600', 'hover:bg-amber-500');
+            playBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+        }
+
+        function toggleAutoPlayPaging() {
+            if (pagingState.autoPlayTimer) {
+                stopAutoPlayPaging();
+                return;
+            }
+            if (pagingState.currentStep >= pagingState.refString.length) {
+                resetPagingSimulation();
+            }
+            const playBtn = document.getElementById('btn-page-play');
+            playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+            playBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
+            playBtn.classList.add('bg-amber-600', 'hover:bg-amber-500');
+
+            pagingState.autoPlayTimer = setInterval(() => {
+                if (pagingState.currentStep >= pagingState.refString.length) {
+                    stopAutoPlayPaging();
+                } else {
+                    stepPagingForward();
+                }
+            }, 650);
+        }
+
+        function precomputePagingHistory(refString, frameCount, algo) {
+            const history = [];
+            let frames = Array(frameCount).fill(null);
+            let loadOrder = [];      // Queue for FIFO
+            let lastUsedMap = new Map(); // Page -> last step index for LRU
+
+            refString.forEach((page, stepIdx) => {
+                const existingSlot = frames.indexOf(page);
+                let isHit = existingSlot !== -1;
+                let replacedPage = null;
+                let targetSlot = existingSlot;
+                let reason = '';
+
+                if (isHit) {
+                    lastUsedMap.set(page, stepIdx);
+                    reason = `Page <strong class="text-emerald-400">${page}</strong> is already resident in <strong>Frame ${existingSlot}</strong>. TLB/Page Table hit!`;
+                } else {
+                    const emptySlot = frames.indexOf(null);
+                    if (emptySlot !== -1) {
+                        // Free frame available
+                        frames[emptySlot] = page;
+                        targetSlot = emptySlot;
+                        loadOrder.push(page);
+                        lastUsedMap.set(page, stepIdx);
+                        reason = `Page Fault on <strong class="text-rose-400">${page}</strong>. Loaded directly into empty <strong>Frame ${emptySlot}</strong>.`;
+                    } else {
+                        // Eviction required
+                        let victimPage = null;
+
+                        if (algo === 'FIFO') {
+                            victimPage = loadOrder.shift();
+                            loadOrder.push(page);
+                            reason = `Page Fault on <strong class="text-rose-400">${page}</strong>. Evicted oldest loaded page <strong class="text-amber-300">${victimPage}</strong> (FIFO queue head).`;
+                        } else if (algo === 'LRU') {
+                            let oldestUse = Infinity;
+                            frames.forEach(p => {
+                                const lastUsed = lastUsedMap.get(p) ?? -1;
+                                if (lastUsed < oldestUse) {
+                                    oldestUse = lastUsed;
+                                    victimPage = p;
+                                }
+                            });
+                            reason = `Page Fault on <strong class="text-rose-400">${page}</strong>. Evicted <strong class="text-amber-300">${victimPage}</strong> (least recently used at step ${oldestUse + 1}).`;
+                        } else if (algo === 'OPTIMAL') {
+                            let farthestNextUse = -1;
+                            frames.forEach(p => {
+                                const nextIdx = refString.slice(stepIdx + 1).indexOf(p);
+                                const distance = nextIdx === -1 ? Infinity : nextIdx;
+                                if (distance > farthestNextUse) {
+                                    farthestNextUse = distance;
+                                    victimPage = p;
+                                }
+                            });
+                            const futureNote = farthestNextUse === Infinity ? 'never referenced again' : `not needed for ${farthestNextUse + 1} steps`;
+                            reason = `Page Fault on <strong class="text-rose-400">${page}</strong>. Evicted <strong class="text-amber-300">${victimPage}</strong> (${futureNote}).`;
+                        }
+
+                        targetSlot = frames.indexOf(victimPage);
+                        replacedPage = victimPage;
+                        frames[targetSlot] = page;
+                        lastUsedMap.delete(victimPage);
+                        lastUsedMap.set(page, stepIdx);
+                    }
+                }
+
+                history.push({
+                    step: stepIdx + 1,
+                    page,
+                    frames: [...frames],
+                    isHit,
+                    targetSlot,
+                    replacedPage,
+                    reason
+                });
+            });
+
+            return history;
+        }
+
+        function resetPagingSimulation() {
+            stopAutoPlayPaging();
+            const rawInput = document.getElementById('ref-string-input').value;
+            const parsed = parseReferenceString(rawInput);
+
+            if (parsed.length === 0) {
+                showToast('Please enter at least one valid numeric page reference.', 'warning');
+                return;
+            }
+
+            pagingState.refString = parsed.slice(0, 32); // Cap at 32 steps for crisp UI
+            pagingState.frameCount = parseInt(document.getElementById('frame-count').value, 10);
+            pagingState.algo = document.getElementById('page-algo').value;
+            pagingState.currentStep = 0;
+            pagingState.history = precomputePagingHistory(pagingState.refString, pagingState.frameCount, pagingState.algo);
+
+            document.getElementById('paging-algo-explanation').innerHTML = `
+                <i class="fa-solid fa-circle-info text-sky-400 mt-0.5"></i>
+                <div>${pagingAlgoInfo[pagingState.algo]}</div>
+            `;
+
+            renderPagingUI();
+        }
+
+        function stepPagingForward() {
+            if (pagingState.currentStep < pagingState.refString.length) {
+                pagingState.currentStep++;
+                renderPagingUI();
+            }
+        }
+
+        function runAllPaging() {
+            stopAutoPlayPaging();
+            pagingState.currentStep = pagingState.refString.length;
+            renderPagingUI();
+        }
+
+        function renderPagingUI() {
+            const { refString, frameCount, currentStep, history } = pagingState;
+            const completedSteps = history.slice(0, currentStep);
+            const hits = completedSteps.filter(s => s.isHit).length;
+            const faults = completedSteps.filter(s => !s.isHit).length;
+            const totalDone = completedSteps.length;
+
+            const hitRatio = totalDone > 0 ? ((hits / totalDone) * 100).toFixed(1) : '0.0';
+            const faultRatio = totalDone > 0 ? ((faults / totalDone) * 100).toFixed(1) : '0.0';
+
+            // Update Top KPI Cards
+            document.getElementById('paging-hits').textContent = hits;
+            document.getElementById('paging-faults').textContent = faults;
+            document.getElementById('paging-progress-text').textContent = `/ ${refString.length} refs`;
+            document.getElementById('paging-hit-ratio').textContent = `${hitRatio}%`;
+            document.getElementById('paging-fault-ratio').textContent = `${faultRatio}%`;
+            document.getElementById('paging-hit-bar').style.width = `${hitRatio}%`;
+            document.getElementById('paging-fault-bar').style.width = `${faultRatio}%`;
+
+            document.getElementById('current-step-badge').textContent = `Step ${currentStep} / ${refString.length}`;
+
+            // Update Live Frame Inspector
+            const framesContainer = document.getElementById('live-frames-container');
+            framesContainer.innerHTML = '';
+            const latestSnapshot = currentStep > 0 ? history[currentStep - 1] : null;
+            const currentFrames = latestSnapshot ? latestSnapshot.frames : Array(frameCount).fill(null);
+
+            for (let f = 0; f < frameCount; f++) {
+                const val = currentFrames[f];
+                const isModified = latestSnapshot && latestSnapshot.targetSlot === f;
+                const isHitSlot = isModified && latestSnapshot.isHit;
+                const isFaultSlot = isModified && !latestSnapshot.isHit;
+
+                let borderStyle = 'border-slate-800 bg-slate-950';
+                let badge = '<span class="text-[10px] font-mono text-slate-600">EMPTY</span>';
+
+                if (val !== null) {
+                    if (isHitSlot) {
+                        borderStyle = 'border-emerald-500 bg-emerald-500/10 pulse-highlight';
+                        badge = '<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">HIT</span>';
+                    } else if (isFaultSlot) {
+                        borderStyle = 'border-rose-500 bg-rose-500/10 pulse-highlight';
+                        badge = `<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold">${latestSnapshot.replacedPage !== null ? `REPLACED ${latestSnapshot.replacedPage}` : 'LOADED'}</span>`;
+                    } else {
+                        borderStyle = 'border-slate-700 bg-slate-950';
+                        badge = '<span class="text-[10px] font-mono text-slate-400">RESIDENT</span>';
+                    }
+                }
+
+                const card = document.createElement('div');
+                card.className = `rounded-lg border p-3 flex items-center justify-between transition-all ${borderStyle}`;
+                card.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-mono text-slate-500">Frame ${f}</span>
+                        <span class="text-lg font-bold font-mono ${val !== null ? 'text-white' : 'text-slate-700'}">
+                            ${val !== null ? `Page ${val}` : '—'}
+                        </span>
+                    </div>
+                    <div>${badge}</div>
+                `;
+                framesContainer.appendChild(card);
+            }
+
+            // Update Decision Insight Box
+            const insightBox = document.getElementById('paging-step-insight');
+            if (latestSnapshot) {
+                insightBox.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Step ${latestSnapshot.step} Decision</span>
+                        <span class="font-mono text-[11px] font-bold ${latestSnapshot.isHit ? 'text-emerald-400' : 'text-rose-400'}">
+                            ${latestSnapshot.isHit ? 'PAGE HIT' : 'PAGE FAULT'}
+                        </span>
+                    </div>
+                    <p class="text-slate-200 leading-relaxed">${latestSnapshot.reason}</p>
+                `;
+            } else {
+                insightBox.innerHTML = `
+                    <div class="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">MMU Translation Decision</div>
+                    <p class="text-slate-300 leading-relaxed">Click <strong>Step</strong> or <strong>Play</strong> to begin processing the virtual page reference stream.</p>
+                `;
+            }
+
+            // Render Reference Trace Matrix Table
+            const table = document.getElementById('paging-matrix-table');
+            let html = '<thead><tr>';
+            html += '<th class="py-2 px-3 text-left text-slate-400 bg-slate-950 border border-slate-800 sticky left-0 z-10">Ref Page</th>';
+            
+            refString.forEach((page, idx) => {
+                const isCurrent = idx === currentStep - 1;
+                const isFuture = idx >= currentStep;
+                const cellClass = isCurrent
+                    ? 'bg-sky-500/25 text-sky-300 border-sky-500 font-bold ring-1 ring-sky-400'
+                    : isFuture
+                        ? 'bg-slate-950/60 text-slate-600 border-slate-800'
+                        : 'bg-slate-950 text-white border-slate-800';
+                html += `<th class="py-2 px-2.5 border ${cellClass} min-w-[36px]">${page}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            // Frame rows
+            for (let f = 0; f < frameCount; f++) {
+                html += `<tr>`;
+                html += `<td class="py-2 px-3 text-left text-slate-400 bg-slate-950 border border-slate-800 sticky left-0 z-10 font-medium">Frame ${f}</td>`;
+                
+                refString.forEach((_, idx) => {
+                    if (idx >= currentStep) {
+                        html += `<td class="py-2 px-2.5 border border-slate-800/60 bg-slate-950/30 text-slate-700">·</td>`;
+                    } else {
+                        const snap = history[idx];
+                        const val = snap.frames[f];
+                        const isTarget = snap.targetSlot === f;
+                        let cellBg = 'bg-slate-900/50 text-slate-300';
+                        if (isTarget && snap.isHit) cellBg = 'bg-emerald-500/20 text-emerald-300 font-bold';
+                        if (isTarget && !snap.isHit) cellBg = 'bg-rose-500/20 text-rose-300 font-bold';
+
+                        html += `<td class="py-2 px-2.5 border border-slate-800 ${cellBg}">${val !== null ? val : '-'}</td>`;
+                    }
+                });
+                html += `</tr>`;
+            }
+
+            // Status row (Hit / Fault)
+            html += `<tr>`;
+            html += `<td class="py-2 px-3 text-left text-slate-400 bg-slate-950 border border-slate-800 sticky left-0 z-10 font-medium">Status</td>`;
+            refString.forEach((_, idx) => {
+                if (idx >= currentStep) {
+                    html += `<td class="py-2 px-2.5 border border-slate-800/60 bg-slate-950/30 text-slate-700">-</td>`;
+                } else {
+                    const snap = history[idx];
+                    if (snap.isHit) {
+                        html += `<td class="py-1.5 px-2 border border-slate-800 bg-emerald-950/40 text-emerald-400 font-bold">H</td>`;
+                    } else {
+                        html += `<td class="py-1.5 px-2 border border-slate-800 bg-rose-950/40 text-rose-400 font-bold">F</td>`;
+                    }
+                }
+            });
+            html += `</tr></tbody>`;
+
+            table.innerHTML = html;
+        }
+
+        /* ==========================================================================
+           INITIALIZATION ON PAGE LOAD
+           ========================================================================== */
+        window.addEventListener('DOMContentLoaded', () => {
+            resetContiguousMemory();
+            resetPagingSimulation();
+        });
+    </script>
+</body>
+</html>
